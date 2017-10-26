@@ -112,11 +112,15 @@ Function Write-Log {
 		{
 			try
 			{
-				Add-Content -Path $Path -Value $Content
+				Add-Content -Path $Path -Value $Content -ErrorAction Stop
+			}
+			catch [System.UnauthorizedAccessException]
+			{
+				Write-Verbose -Message "Could not write to log file, you probably need to run the cmdlet with administrative privileges."
 			}
 			catch [Exception]
 			{
-				Write-Warning -Message "Could not write to log file : $($_.Exception.Message)`n$Content"
+				Write-Verbose -Message "Could not write to log file : $($_.Exception.Message)`n$Content"
 			}
 		}
 
