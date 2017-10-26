@@ -75,6 +75,7 @@ Function Write-Log {
 	)
 
 	Begin {		
+		Get-CallerPreference -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState
 	}
 
 	Process {
@@ -238,6 +239,7 @@ Function Write-CMTraceLog {
 	)
 
 	Begin {		
+		Get-CallerPreference -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState
 	}
 
 	Process {
@@ -269,6 +271,178 @@ Function Write-CMTraceLog {
 
 	End {		
 	}
+}
+
+Function Get-CallerPreference {
+    <#
+		.SYNOPSIS
+			Fetches "Preference" variable values from the caller's scope.
+
+		.DESCRIPTION
+		   Script module functions do not automatically inherit their caller's variables, but they can be
+		   obtained through the $PSCmdlet variable in Advanced Functions.  This function is a helper function
+		   for any script module Advanced Function; by passing in the values of $ExecutionContext.SessionState
+		   and $PSCmdlet, Get-CallerPreference will set the caller's preference variables locally.
+
+		.PARAMETER Cmdlet
+		   The $PSCmdlet object from a script module Advanced Function.
+
+		.PARAMETER SessionState
+		   The $ExecutionContext.SessionState object from a script module Advanced Function.  This is how the
+		   Get-CallerPreference function sets variables in its callers' scope, even if that caller is in a different
+		   script module.
+
+		.PARAMETER Name
+		   Optional array of parameter names to retrieve from the caller's scope.  Default is to retrieve all
+		   Preference variables as defined in the about_Preference_Variables help file (as of PowerShell 4.0)
+		   This parameter may also specify names of variables that are not in the about_Preference_Variables
+		   help file, and the function will retrieve and set those as well.
+
+		.EXAMPLE
+		   Get-CallerPreference -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState
+
+		   Imports the default PowerShell preference variables from the caller into the local scope.
+
+		.EXAMPLE
+		   Get-CallerPreference -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState -Name 'ErrorActionPreference','SomeOtherVariable'
+
+		   Imports only the ErrorActionPreference and SomeOtherVariable variables into the local scope.
+
+		.EXAMPLE
+		   'ErrorActionPreference','SomeOtherVariable' | Get-CallerPreference -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState
+
+		   Same as Example 2, but sends variable names to the Name parameter via pipeline input.
+
+		.INPUTS
+		   System.String
+
+		.OUTPUTS
+		   None
+
+		.NOTES
+			AUTHOR: Dave Wyatt (Original Content)
+					Michael Haken (Updates)
+			LAST MODIFIED: 10/25/2017
+    #>
+
+    [CmdletBinding()]
+    Param (
+        [Parameter(Mandatory = $true)]
+        [ValidateScript({ 
+			$_.GetType().FullName -eq "System.Management.Automation.PSScriptCmdlet" 
+		})]
+		[ValidateNotNull()]
+        $Cmdlet,
+
+        [Parameter(Mandatory = $true)]
+		[ValidateNotNull()]
+        [System.Management.Automation.SessionState]$SessionState,
+
+        [Parameter(ValueFromPipeline = $true)]
+		[ValidateNotNullOrEmpty()]
+        [System.String[]]$Name = @()
+    )
+
+    Begin {  
+		[System.Collections.Hashtable]$FilterHash = @{}
+    }
+    
+    Process {
+		# Add any filter values supplied via the pipeline
+		foreach ($Item in $Name)
+		{
+			$FilterHash.Add($Item, $true)
+		}
+    }
+
+    End
+    {
+        # List of preference variables taken from the about_Preference_Variables help file in PowerShell version 4.0
+        [System.Collections.Hashtable]$Preferences = @{
+            'ErrorView' = $null
+            'FormatEnumerationLimit' = $null
+            'LogCommandHealthEvent' = $null
+            'LogCommandLifecycleEvent' = $null
+            'LogEngineHealthEvent' = $null
+            'LogEngineLifecycleEvent' = $null
+            'LogProviderHealthEvent' = $null
+            'LogProviderLifecycleEvent' = $null
+            'MaximumAliasCount' = $null
+            'MaximumDriveCount' = $null
+            'MaximumErrorCount' = $null
+            'MaximumFunctionCount' = $null
+            'MaximumHistoryCount' = $null
+            'MaximumVariableCount' = $null
+            'OFS' = $null
+            'OutputEncoding' = $null
+            'ProgressPreference' = $null
+            'PSDefaultParameterValues' = $null
+            'PSEmailServer' = $null
+            'PSModuleAutoLoadingPreference' = $null
+            'PSSessionApplicationName' = $null
+            'PSSessionConfigurationName' = $null
+            'PSSessionOption' = $null
+            'ErrorActionPreference' = 'ErrorAction'
+            'DebugPreference' = 'Debug'
+            'ConfirmPreference' = 'Confirm'
+            'WhatIfPreference' = 'WhatIf'
+            'VerbosePreference' = 'Verbose'
+            'WarningPreference' = 'WarningAction'
+        }
+
+
+        foreach ($Item in $Preferences.GetEnumerator())
+        {
+			# If the preference doesn't have a value or the caller command wasn't supplied that parameter explicitly AND 
+			# we're not filtering or if we are, that the filter contains the key,
+			# go ahead and get the preference value from the session state of the calling module
+			if ([System.String]::IsNullOrEmpty($Item.Value) -or -not $Cmdlet.MyInvocation.BoundParameters.ContainsKey($Item.Value) -and
+				($FilterHash.Count -eq 0 -or $FilterHash.ContainsKey($Item.Name)))
+			{
+				$Variable = $Cmdlet.SessionState.PSVariable.Get($Item.Key)
+
+				if ($Variable -ne $null)
+				{
+					# If the provided session state is the same as the current session state, set the variable locally since they are in the 
+					# same module
+					if ($SessionState -eq $ExecutionContext.SessionState)
+					{
+						Set-Variable -Scope 1 -Name $Variable.Name -Value $Variable.Value -Force -Confirm:$false -WhatIf:$false
+					}
+					# Otherwise set them in the provided session state
+					else
+					{
+						$SessionState.PSVariable.Set($Variable.Name, $Variable.Value)
+					}
+				}
+			}
+        }
+
+		# If we are filtering, and the filter was not in the standard set of preferences (like a custom preference), 
+		# add it here
+        if ($FilterHash.Count -gt 0)
+        {
+            foreach ($Key in $FilterHash.Keys)
+            {
+                if (-not $Preferences.ContainsKey($Key))
+                {
+                    $Variable = $Cmdlet.SessionState.PSVariable.Get($Key)
+                
+                    if ($Variable -ne $null)
+                    {
+                        if ($SessionState -eq $ExecutionContext.SessionState)
+                        {
+                            Set-Variable -Scope 1 -Name $Variable.Name -Value $Variable.Value -Force -Confirm:$false -WhatIf:$false
+                        }
+                        else
+                        {
+                            $SessionState.PSVariable.Set($Variable.Name, $Variable.Value)
+                        }
+                    }
+                }
+            }
+        }
+    } 
 }
 
 #endregion

@@ -2,6 +2,9 @@
 
 ## Revision History
 
+### 1.0.0.2
+Updated the Write-Log cmdlet to inherit the preferences from the caller scope so Verbose and Debug messages will be written.
+
 ### 1.0.0.1
 Updated the Write-Log cmdlet so that errors writing to the log file will show as verbose messages.
 
